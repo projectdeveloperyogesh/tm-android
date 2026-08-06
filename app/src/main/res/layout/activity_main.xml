@@ -204,7 +204,7 @@
                             android:layout_marginEnd="6dp"
                             android:layout_weight="1"
                             android:backgroundTint="@color/accent_emerald"
-                            android:text="🎙️ Record"
+                            android:text="Record"
                             android:textColor="@color/text_white"
                             android:textStyle="bold" />
 
@@ -216,7 +216,7 @@
                             android:layout_weight="1"
                             android:backgroundTint="@color/danger_red"
                             android:enabled="false"
-                            android:text="⏹️ Stop & Process"
+                            android:text="Stop &amp; Process"
                             android:textColor="@color/text_white"
                             android:textStyle="bold" />
 
