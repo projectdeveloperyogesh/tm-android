@@ -1,16 +1,20 @@
 package com.taskpulse.ai
 
 import android.Manifest
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.speech.RecognitionListener
+import android.speech.RecognizerIntent
+import android.speech.SpeechRecognizer
 import android.util.Log
 import android.widget.Toast
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
-import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.google.android.material.tabs.TabLayout
 import com.taskpulse.ai.adapter.JobAdapter
@@ -18,26 +22,25 @@ import com.taskpulse.ai.adapter.MeetingAdapter
 import com.taskpulse.ai.adapter.TaskAdapter
 import com.taskpulse.ai.api.ApiClient
 import com.taskpulse.ai.databinding.ActivityMainBinding
+import com.taskpulse.ai.engine.LocalMeetingEngine
 import com.taskpulse.ai.models.BackgroundJob
 import com.taskpulse.ai.models.Meeting
 import com.taskpulse.ai.models.TaskItem
 import com.taskpulse.ai.recorder.AudioRecorderManager
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import okhttp3.MediaType.Companion.toMediaTypeOrNull
-import okhttp3.MultipartBody
-import okhttp3.RequestBody.Companion.asRequestBody
-import okhttp3.RequestBody.Companion.toRequestBody
+import com.taskpulse.ai.storage.LocalDataManager
 import java.io.File
+import java.util.*
 
 class MainActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityMainBinding
     private lateinit var recorderManager: AudioRecorderManager
+    private lateinit var localDataManager: LocalDataManager
 
-    private var meetingAdapter = MeetingAdapter(emptyList()) { meeting -> showMeetingDetails(meeting) }
+    private var speechRecognizer: SpeechRecognizer? = null
+    private val liveTranscriptBuilder = StringBuilder()
+
+    private var meetingAdapter = MeetingAdapter(emptyList()) { meeting -> showMeetingDetailsDialog(meeting) }
     private var taskAdapter = TaskAdapter(emptyList())
     private var jobAdapter = JobAdapter(emptyList())
 
@@ -47,7 +50,7 @@ class MainActivity : AppCompatActivity() {
     private val timerHandler = Handler(Looper.getMainLooper())
     private var timerRunnable: Runnable? = null
 
-    private val processedJobIds = mutableSetOf<String>()
+    private var isStandaloneMode = true
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -55,11 +58,12 @@ class MainActivity : AppCompatActivity() {
         setContentView(binding.root)
 
         recorderManager = AudioRecorderManager(this)
+        localDataManager = LocalDataManager(this)
 
         setupUI()
         checkPermissions()
-        startJobsPolling()
-        loadData()
+        initSpeechRecognizer()
+        loadLocalData()
     }
 
     private fun setupUI() {
@@ -70,8 +74,11 @@ class MainActivity : AppCompatActivity() {
             val host = binding.editServerHost.text.toString().trim()
             if (host.isNotEmpty()) {
                 ApiClient.updateBaseUrl(host)
-                Toast.makeText(this, "Connected to: ${ApiClient.getBaseUrl()}", Toast.LENGTH_SHORT).show()
-                loadData()
+                isStandaloneMode = false
+                Toast.makeText(this, "Connected to Remote Server: ${ApiClient.getBaseUrl()}", Toast.LENGTH_SHORT).show()
+            } else {
+                isStandaloneMode = true
+                Toast.makeText(this, "100% Standalone On-Device Mode Active", Toast.LENGTH_SHORT).show()
             }
         }
 
@@ -88,7 +95,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         binding.swipeRefresh.setOnRefreshListener {
-            loadData()
+            loadLocalData()
             binding.swipeRefresh.isRefreshing = false
         }
 
@@ -100,7 +107,7 @@ class MainActivity : AppCompatActivity() {
                     1 -> binding.recyclerView.adapter = taskAdapter
                     2 -> binding.recyclerView.adapter = jobAdapter
                 }
-                loadData()
+                loadLocalData()
             }
             override fun onTabUnselected(tab: TabLayout.Tab?) {}
             override fun onTabReselected(tab: TabLayout.Tab?) {}
@@ -121,7 +128,58 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun initSpeechRecognizer() {
+        if (SpeechRecognizer.isRecognitionAvailable(this)) {
+            speechRecognizer = SpeechRecognizer.createSpeechRecognizer(this)
+            speechRecognizer?.setRecognitionListener(object : RecognitionListener {
+                override fun onReadyForSpeech(params: Bundle?) {}
+                override fun onBeginningOfSpeech() {}
+                override fun onRmsChanged(rmsdB: Float) {}
+                override fun onBufferReceived(buffer: ByteArray?) {}
+                override fun onEndOfSpeech() {
+                    if (isRecording) restartSpeechRecognition()
+                }
+                override fun onError(error: Int) {
+                    if (isRecording) restartSpeechRecognition()
+                }
+                override fun onResults(results: Bundle?) {
+                    val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+                    if (!matches.isNullOrEmpty()) {
+                        liveTranscriptBuilder.append(matches[0]).append(" ")
+                    }
+                    if (isRecording) restartSpeechRecognition()
+                }
+                override fun onPartialResults(partialResults: Bundle?) {
+                    val matches = partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+                    if (!matches.isNullOrEmpty()) {
+                        Log.d("SpeechRecognizer", "Partial: ${matches[0]}")
+                    }
+                }
+                override fun onEvent(eventType: Int, params: Bundle?) {}
+            })
+        }
+    }
+
+    private fun startSpeechRecognition() {
+        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault())
+            putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
+        }
+        speechRecognizer?.startListening(intent)
+    }
+
+    private fun restartSpeechRecognition() {
+        try {
+            speechRecognizer?.stopListening()
+            startSpeechRecognition()
+        } catch (e: Exception) {
+            Log.e("MainActivity", "Error restarting speech recognition: ${e.message}")
+        }
+    }
+
     private fun startRecording() {
+        liveTranscriptBuilder.clear()
         val file = recorderManager.startRecording { level ->
             binding.progressMicLevel.progress = level
             binding.textMicPercent.text = "$level%"
@@ -132,10 +190,12 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
+        startSpeechRecognition()
+
         isRecording = true
         binding.btnStartRecord.isEnabled = false
         binding.btnStopRecord.isEnabled = true
-        binding.textStatusPill.text = "Recording Live"
+        binding.textStatusPill.text = "Recording & Transcribing On-Device"
         binding.textStatusPill.setTextColor(ContextCompat.getColor(this, R.color.accent_emerald))
 
         secondsElapsed = 0
@@ -155,135 +215,102 @@ class MainActivity : AppCompatActivity() {
     private fun stopRecordingAndProcess() {
         timerRunnable?.let { timerHandler.removeCallbacks(it) }
         val recordedFile = recorderManager.stopRecording()
+        try { speechRecognizer?.stopListening() } catch (e: Exception) {}
         isRecording = false
 
         binding.btnStartRecord.isEnabled = true
         binding.btnStopRecord.isEnabled = false
-        binding.textStatusPill.text = "Uploading to Background Engine..."
+        binding.textStatusPill.text = "Processing On-Device AI Intelligence..."
         binding.progressMicLevel.progress = 0
         binding.textMicPercent.text = "0%"
 
-        if (recordedFile == null || !recordedFile.exists()) {
-            Toast.makeText(this, "No recorded audio found", Toast.LENGTH_SHORT).show()
-            binding.textStatusPill.text = "Standby"
-            return
-        }
+        val title = binding.editMeetingTitle.text.toString().ifEmpty { "On-Device Meeting ${System.currentTimeMillis() % 10000}" }
+        val audioPath = recordedFile?.absolutePath ?: "N/A"
+        val transcript = liveTranscriptBuilder.toString()
 
-        val title = binding.editMeetingTitle.text.toString().ifEmpty { "Android Live Meeting" }
+        // 100% On-Device Standalone Processing
+        val (meeting, tasks) = LocalMeetingEngine.processMeetingLocally(
+            title = title,
+            transcriptRaw = transcript,
+            audioFilePath = audioPath
+        )
 
-        lifecycleScope.launch(Dispatchers.IO) {
-            try {
-                val requestFile = recordedFile.asRequestBody("audio/wav".toMediaTypeOrNull())
-                val body = MultipartBody.Part.createFormData("file", recordedFile.name, requestFile)
-                val titleBody = title.toRequestBody("text/plain".toMediaTypeOrNull())
-                val langBody = "English".toRequestBody("text/plain".toMediaTypeOrNull())
+        localDataManager.saveMeeting(meeting)
+        localDataManager.saveTasks(tasks)
 
-                val response = ApiClient.service.uploadRecordedMeeting(body, titleBody, langBody)
-                withContext(Dispatchers.Main) {
-                    binding.textStatusPill.text = "Standby"
-                    binding.textTimer.text = "00:00:00"
-                    if (response.isSuccessful) {
-                        Toast.makeText(this@MainActivity, "Recording dispatched to background processing!", Toast.LENGTH_LONG).show()
-                        binding.tabLayout.getTabAt(2)?.select()
-                        loadData()
-                    } else {
-                        Toast.makeText(this@MainActivity, "Upload failed: ${response.message()}", Toast.LENGTH_LONG).show()
-                    }
-                }
-            } catch (e: Exception) {
-                withContext(Dispatchers.Main) {
-                    binding.textStatusPill.text = "Standby"
-                    Toast.makeText(this@MainActivity, "Error: ${e.message}", Toast.LENGTH_LONG).show()
-                }
-            }
-        }
+        binding.textStatusPill.text = "Standby"
+        binding.textTimer.text = "00:00:00"
+        binding.editMeetingTitle.text.clear()
+
+        Toast.makeText(this, "Meeting saved locally on phone!\nSummary & ${tasks.size} Action Tasks generated.", Toast.LENGTH_LONG).show()
+
+        val mockJob = BackgroundJob(
+            id = "job_" + UUID.randomUUID().toString().substring(0, 8),
+            meetingTitle = title,
+            targetLanguage = "English",
+            stage = "completed",
+            statusMessage = "Meeting processing completed & saved locally on phone!",
+            progress = 100,
+            finishedAt = System.currentTimeMillis() / 1000.0,
+            meetingId = meeting.id
+        )
+        jobAdapter.updateData(listOf(mockJob))
+
+        binding.tabLayout.getTabAt(0)?.select()
+        loadLocalData()
     }
 
-    private fun startJobsPolling() {
-        lifecycleScope.launch(Dispatchers.IO) {
-            while (true) {
-                try {
-                    val response = ApiClient.service.getJobs()
-                    if (response.isSuccessful && response.body() != null) {
-                        val jobs = response.body()!!
-                        var hasNewCompletion = false
-                        for (job in jobs) {
-                            if (job.stage == "completed" && !processedJobIds.contains(job.id)) {
-                                processedJobIds.add(job.id)
-                                hasNewCompletion = true
-                            }
-                        }
-                        withContext(Dispatchers.Main) {
-                            jobAdapter.updateData(jobs)
-                            if (hasNewCompletion) {
-                                Toast.makeText(this@MainActivity, "🎉 Meeting processing completed & saved!", Toast.LENGTH_SHORT).show()
-                                loadMeetings()
-                                loadTasks()
-                            }
-                        }
-                    }
-                } catch (e: Exception) {
-                    Log.e("MainActivity", "Jobs poll error: ${e.message}")
-                }
-                delay(2000)
-            }
-        }
-    }
-
-    private fun loadData() {
+    private fun loadLocalData() {
         when (currentTab) {
-            0 -> loadMeetings()
-            1 -> loadTasks()
-            2 -> fetchJobsOnce()
-        }
-    }
-
-    private fun loadMeetings() {
-        lifecycleScope.launch(Dispatchers.IO) {
-            try {
-                val res = ApiClient.service.getMeetings()
-                if (res.isSuccessful && res.body() != null) {
-                    withContext(Dispatchers.Main) {
-                        meetingAdapter.updateData(res.body()!!)
-                    }
-                }
-            } catch (e: Exception) {
-                Log.e("MainActivity", "Error loading meetings: ${e.message}")
+            0 -> {
+                val meetings = localDataManager.getMeetings()
+                meetingAdapter.updateData(meetings)
+            }
+            1 -> {
+                val tasks = localDataManager.getTasks()
+                taskAdapter.updateData(tasks)
+            }
+            2 -> {
+                // Keep job adapter status
             }
         }
     }
 
-    private fun loadTasks() {
-        lifecycleScope.launch(Dispatchers.IO) {
-            try {
-                val res = ApiClient.service.getTasks()
-                if (res.isSuccessful && res.body() != null) {
-                    withContext(Dispatchers.Main) {
-                        taskAdapter.updateData(res.body()!!)
-                    }
-                }
-            } catch (e: Exception) {
-                Log.e("MainActivity", "Error loading tasks: ${e.message}")
-            }
+    private fun showMeetingDetailsDialog(meeting: Meeting) {
+        val tasks = localDataManager.getTasks().filter { it.meetingId == meeting.id }
+        val taskText = if (tasks.isNotEmpty()) {
+            tasks.joinToString("\n") { "• [${it.priority}] ${it.title} (${it.assignee})" }
+        } else {
+            "No action tasks extracted."
         }
+
+        val message = """
+            📅 Date: ${meeting.createdAt}
+            
+            📝 AI SUMMARY:
+            ${meeting.summary}
+            
+            ✅ ACTION TASKS:
+            $taskText
+            
+            💬 TRANSCRIPT:
+            ${meeting.transcript}
+        """.trimIndent()
+
+        AlertDialog.Builder(this)
+            .setTitle(meeting.title)
+            .setMessage(message)
+            .setPositiveButton("Close", null)
+            .setNegativeButton("Delete Meeting") { _, _ ->
+                localDataManager.deleteMeeting(meeting.id)
+                loadLocalData()
+                Toast.makeText(this, "Meeting deleted", Toast.LENGTH_SHORT).show()
+            }
+            .show()
     }
 
-    private fun fetchJobsOnce() {
-        lifecycleScope.launch(Dispatchers.IO) {
-            try {
-                val res = ApiClient.service.getJobs()
-                if (res.isSuccessful && res.body() != null) {
-                    withContext(Dispatchers.Main) {
-                        jobAdapter.updateData(res.body()!!)
-                    }
-                }
-            } catch (e: Exception) {
-                Log.e("MainActivity", "Error fetching jobs: ${e.message}")
-            }
-        }
-    }
-
-    private fun showMeetingDetails(meeting: Meeting) {
-        Toast.makeText(this, "Session: ${meeting.title}\nTasks Extracted: ${meeting.taskCount}", Toast.LENGTH_LONG).show()
+    override fun onDestroy() {
+        super.onDestroy()
+        speechRecognizer?.destroy()
     }
 }

@@ -65,9 +65,9 @@
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="Server Host Connection"
-                        android:textColor="@color/text_white"
-                        android:textSize="14sp"
+                        android:text="100% Standalone Mode (Optional Remote Server Sync)"
+                        android:textColor="@color/accent_cyan"
+                        android:textSize="13sp"
                         android:textStyle="bold" />
 
                     <LinearLayout

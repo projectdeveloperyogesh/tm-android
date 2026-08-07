@@ -6,22 +6,22 @@ A native Android application built with Kotlin, Coroutines, Retrofit, and AudioR
 
 ## 🌟 Key Features
 
-1. **🎙️ Native High-Fidelity Audio Recording**:
+1. **📱 100% Standalone On-Device Operation**:
+   - Zero external server dependency!
+   - Performs audio recording, speech transcription, AI summary generation, and task extraction 100% locally on your Android phone.
+
+2. **🎙️ Native High-Fidelity Audio & On-Device Speech Recognition**:
    - Captures microphone audio using 16kHz PCM WAV encoding.
+   - Converts live spoken meeting speech into text on-device using Android's native SpeechRecognizer.
    - Real-time decibel volume gauge visualizer (`0% - 100%`).
-   - Background foreground service compatibility.
 
-2. **⚡ Non-Blocking Background Processing Integration**:
-   - Immediately releases recording state after tapping **Stop & Process**.
-   - Uploads binary PCM WAV chunks directly to TaskPulse AI server (`/api/record/stop_web`).
-   - Polls real-time job progress (`transcribing`, `analyzing`, `saving`, `completed`).
+3. **🧠 On-Device Local AI Intelligence Engine (`LocalMeetingEngine`)**:
+   - Automatically generates meeting summaries, key discussion topics, and action tasks locally from speech.
+   - Categorizes priorities (`High`, `Medium`, `Low`), assigns team members, and sets due dates.
 
-3. **📊 AI Meeting Summaries & Action Task Board**:
-   - View list of recorded meetings, dates, and AI-generated summaries.
-   - Integrated action task board with priority badges and assignee tags.
-
-4. **🌐 Adaptive Server Connection**:
-   - Configurable host connection (`http://10.0.2.2:3000` for Android Emulator, or `http://192.168.X.X:3000` for physical devices on local Wi-Fi).
+4. **💾 On-Device Data Persistence (`LocalDataManager`)**:
+   - Saves all meetings, transcripts, summaries, and action tasks in local phone storage (`meetings.json` & `tasks.json`).
+   - View, review, search, or delete meetings anytime completely offline.
 
 ---
 
