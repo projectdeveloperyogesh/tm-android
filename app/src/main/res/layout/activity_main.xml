@@ -82,7 +82,7 @@
                             android:layout_height="40dp"
                             android:layout_weight="1"
                             android:background="#1e293b"
-                            android:hint="http://10.0.2.2:3000"
+                            android:hint="http://10.0.2.2:3005"
                             android:inputType="textUri"
                             android:paddingHorizontal="10dp"
                             android:textColor="@color/text_white"

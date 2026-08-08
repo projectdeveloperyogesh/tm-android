@@ -13,7 +13,8 @@ object LocalMeetingEngine {
         title: String,
         transcriptRaw: String,
         audioFilePath: String,
-        language: String = "English"
+        language: String = "English",
+        serverHost: String? = null
     ): Pair<Meeting, List<TaskItem>> {
         val meetingId = UUID.randomUUID().toString().substring(0, 8)
         val createdAt = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date())
