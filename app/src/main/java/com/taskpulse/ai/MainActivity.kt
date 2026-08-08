@@ -28,6 +28,10 @@ import com.taskpulse.ai.models.Meeting
 import com.taskpulse.ai.models.TaskItem
 import com.taskpulse.ai.recorder.AudioRecorderManager
 import com.taskpulse.ai.storage.LocalDataManager
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.*
 
@@ -286,12 +290,15 @@ class MainActivity : AppCompatActivity() {
             3 -> {
                 val configuredEndpoint = localDataManager.getYogeshChatEndpoint()
                 if (!isStandaloneMode) {
-                    kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+                    CoroutineScope(Dispatchers.IO).launch {
                         try {
                             val res = ApiClient.service.getAiLogs()
-                            if (res.isSuccessful && res.body() != null) {
-                                withContext(kotlinx.coroutines.Dispatchers.Main) {
-                                    aiLogAdapter.updateData(res.body()!!)
+                            if (res.isSuccessful) {
+                                val body = res.body()
+                                if (body != null) {
+                                    withContext(Dispatchers.Main) {
+                                        aiLogAdapter.updateData(body)
+                                    }
                                 }
                             }
                         } catch (e: Exception) {
