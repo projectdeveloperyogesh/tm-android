@@ -39,9 +39,21 @@ interface TaskPulseApiService {
         @Part("target_language") targetLanguage: RequestBody
     ): Response<StopWebResponse>
 
+    @Multipart
+    @POST("api/android/upload")
+    suspend fun uploadAndroidRecording(
+        @Part file: MultipartBody.Part,
+        @Part("meeting_title") meetingTitle: RequestBody,
+        @Part("target_language") targetLanguage: RequestBody,
+        @Part("live_transcript") liveTranscript: RequestBody
+    ): Response<StopWebResponse>
+
     @GET("api/ai/logs")
     suspend fun getAiLogs(): Response<List<com.taskpulse.ai.models.AiLog>>
 
     @DELETE("api/ai/logs")
     suspend fun clearAiLogs(): Response<Void>
+
+    @DELETE("api/meetings/{id}")
+    suspend fun deleteMeeting(@Path("id") id: String): Response<Void>
 }

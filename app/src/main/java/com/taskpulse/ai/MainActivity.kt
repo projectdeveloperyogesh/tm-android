@@ -33,6 +33,10 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import okhttp3.MultipartBody
+import okhttp3.RequestBody.Companion.asRequestBody
+import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.File
 import java.util.*
 
@@ -282,21 +286,69 @@ class MainActivity : AppCompatActivity() {
 
         binding.btnStartRecord.isEnabled = true
         binding.btnStopRecord.isEnabled = false
-        binding.textStatusPill.text = "Processing On-Device AI Intelligence..."
-        binding.textStatusPill.setTextColor(ContextCompat.getColor(this, R.color.text_muted))
         binding.progressMicLevel.progress = 0
         binding.textMicPercent.text = "0%"
 
-        val title = binding.editMeetingTitle.text.toString().ifEmpty { "On-Device Meeting ${System.currentTimeMillis() % 10000}" }
+        val title = binding.editMeetingTitle.text.toString().ifEmpty { "Meeting Session ${System.currentTimeMillis() % 10000}" }
         val audioPath = recordedFile?.absolutePath ?: "N/A"
         var transcript = liveTranscriptBuilder.toString().trim()
 
-        // Fallback if speech-to-text captured nothing
         if (transcript.isEmpty()) {
             transcript = "[Speech-to-text unavailable — review audio recording at: ${recordedFile?.name ?: "N/A"}]"
         }
 
-        // 100% On-Device Standalone Processing
+        if (!isStandaloneMode && recordedFile != null && recordedFile.exists()) {
+            binding.textStatusPill.text = "Uploading to Server (${ApiClient.getBaseUrl()})..."
+            binding.textStatusPill.setTextColor(ContextCompat.getColor(this, R.color.accent_cyan))
+
+            CoroutineScope(Dispatchers.IO).launch {
+                try {
+                    val requestFile = recordedFile.asRequestBody("audio/wav".toMediaTypeOrNull())
+                    val bodyPart = MultipartBody.Part.createFormData("file", recordedFile.name, requestFile)
+                    val titleBody = title.toRequestBody("text/plain".toMediaTypeOrNull())
+                    val langBody = "English".toRequestBody("text/plain".toMediaTypeOrNull())
+                    val transBody = transcript.toRequestBody("text/plain".toMediaTypeOrNull())
+
+                    val response = ApiClient.service.uploadAndroidRecording(bodyPart, titleBody, langBody, transBody)
+
+                    withContext(Dispatchers.Main) {
+                        if (response.isSuccessful && response.body()?.meeting != null) {
+                            val serverMeeting = response.body()!!.meeting!!
+                            val serverTasks = response.body()!!.tasks ?: emptyList()
+
+                            localDataManager.saveMeeting(serverMeeting)
+                            localDataManager.saveTasks(serverTasks)
+
+                            binding.textStatusPill.text = "Standby"
+                            binding.textTimer.text = "00:00:00"
+                            binding.editMeetingTitle.text.clear()
+
+                            Toast.makeText(this@MainActivity, "Server AI Transcription Complete!\nSummary & ${serverTasks.size} tasks generated.", Toast.LENGTH_LONG).show()
+
+                            binding.tabLayout.getTabAt(0)?.select()
+                            loadLocalData()
+                        } else {
+                            Log.w("MainActivity", "Server response unsuccessful: ${response.code()}. Falling back locally.")
+                            processLocallyFallback(title, transcript, audioPath)
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.e("MainActivity", "Server upload failed: ${e.message}")
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(this@MainActivity, "Server connection notice (${e.message}). Processed locally.", Toast.SHORT).show()
+                        processLocallyFallback(title, transcript, audioPath)
+                    }
+                }
+            }
+        } else {
+            processLocallyFallback(title, transcript, audioPath)
+        }
+    }
+
+    private fun processLocallyFallback(title: String, transcript: String, audioPath: String) {
+        binding.textStatusPill.text = "Processing On-Device AI Intelligence..."
+        binding.textStatusPill.setTextColor(ContextCompat.getColor(this, R.color.text_muted))
+
         val (meeting, tasks) = LocalMeetingEngine.processMeetingLocally(
             title = title,
             transcriptRaw = transcript,
@@ -340,10 +392,22 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
-        val audioFile = File(audioPath)
-        if (!audioFile.exists()) {
-            Toast.makeText(this, "Audio file not found:\n${audioFile.name}", Toast.LENGTH_SHORT).show()
-            return
+        val playSource: String
+        val isRemoteUrl = audioPath.startsWith("http://") || audioPath.startsWith("https://") || audioPath.startsWith("/recordings/") || audioPath.startsWith("/uploads/")
+
+        if (isRemoteUrl) {
+            playSource = if (audioPath.startsWith("http://") || audioPath.startsWith("https://")) {
+                audioPath
+            } else {
+                "${ApiClient.getBaseUrl()}${audioPath.removePrefix("/")}"
+            }
+        } else {
+            val audioFile = File(audioPath)
+            if (!audioFile.exists()) {
+                Toast.makeText(this, "Audio file not found:\n${audioFile.name}", Toast.LENGTH_SHORT).show()
+                return
+            }
+            playSource = audioFile.absolutePath
         }
 
         // Stop any currently playing audio
@@ -351,18 +415,23 @@ class MainActivity : AppCompatActivity() {
 
         try {
             mediaPlayer = MediaPlayer().apply {
-                setDataSource(audioFile.absolutePath)
-                prepare()
-                start()
-            }
-            Toast.makeText(this, "▶ Playing: ${audioFile.name}", Toast.LENGTH_SHORT).show()
-
-            mediaPlayer?.setOnCompletionListener {
-                Toast.makeText(this, "⏹ Playback finished", Toast.LENGTH_SHORT).show()
-                stopAudioPlayback()
+                setDataSource(playSource)
+                prepareAsync()
+                setOnPreparedListener { mp ->
+                    mp.start()
+                    Toast.makeText(this@MainActivity, "▶ Playing: ${meeting.title}", Toast.LENGTH_SHORT).show()
+                }
+                setOnCompletionListener {
+                    Toast.makeText(this@MainActivity, "⏹ Playback finished", Toast.LENGTH_SHORT).show()
+                    stopAudioPlayback()
+                }
+                setOnErrorListener { _, what, extra ->
+                    Toast.makeText(this@MainActivity, "Error playing audio ($what, $extra)", Toast.LENGTH_SHORT).show()
+                    true
+                }
             }
         } catch (e: Exception) {
-            Log.e("MainActivity", "Error playing audio: ${e.message}")
+            Log.e("MainActivity", "Error setting up audio player: ${e.message}")
             Toast.makeText(this, "Error playing audio: ${e.message}", Toast.LENGTH_SHORT).show()
         }
     }
