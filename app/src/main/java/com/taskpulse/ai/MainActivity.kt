@@ -472,6 +472,18 @@ class MainActivity : AppCompatActivity() {
 
                 // Delete from local storage
                 localDataManager.deleteMeeting(meeting.id)
+
+                // Delete from remote server if connected
+                if (!isStandaloneMode) {
+                    CoroutineScope(Dispatchers.IO).launch {
+                        try {
+                            ApiClient.service.deleteMeeting(meeting.id)
+                        } catch (e: Exception) {
+                            Log.w("MainActivity", "Remote delete notice: ${e.message}")
+                        }
+                    }
+                }
+
                 loadLocalData()
                 Toast.makeText(this, "Meeting \"${meeting.title}\" deleted.", Toast.LENGTH_SHORT).show()
             }
@@ -482,15 +494,66 @@ class MainActivity : AppCompatActivity() {
     private fun loadLocalData() {
         when (currentTab) {
             0 -> {
-                val meetings = localDataManager.getMeetings()
-                meetingAdapter.updateData(meetings)
+                val localMeetings = localDataManager.getMeetings()
+                meetingAdapter.updateData(localMeetings)
+
+                if (!isStandaloneMode) {
+                    CoroutineScope(Dispatchers.IO).launch {
+                        try {
+                            val res = ApiClient.service.getMeetings()
+                            if (res.isSuccessful && res.body() != null) {
+                                val remoteMeetings = res.body()!!
+                                val mergedMap = LinkedHashMap<String, Meeting>()
+                                localMeetings.forEach { m -> mergedMap[m.id] = m }
+                                remoteMeetings.forEach { m -> if (!mergedMap.containsKey(m.id)) mergedMap[m.id] = m }
+                                withContext(Dispatchers.Main) {
+                                    meetingAdapter.updateData(mergedMap.values.toList())
+                                }
+                            }
+                        } catch (e: Exception) {
+                            Log.w("MainActivity", "Remote meetings fetch notice: ${e.message}")
+                        }
+                    }
+                }
             }
             1 -> {
-                val tasks = localDataManager.getTasks()
-                taskAdapter.updateData(tasks)
+                val localTasks = localDataManager.getTasks()
+                taskAdapter.updateData(localTasks)
+
+                if (!isStandaloneMode) {
+                    CoroutineScope(Dispatchers.IO).launch {
+                        try {
+                            val res = ApiClient.service.getTasks()
+                            if (res.isSuccessful && res.body() != null) {
+                                val remoteTasks = res.body()!!
+                                val mergedMap = LinkedHashMap<String, TaskItem>()
+                                localTasks.forEach { t -> mergedMap[t.id] = t }
+                                remoteTasks.forEach { t -> if (!mergedMap.containsKey(t.id)) mergedMap[t.id] = t }
+                                withContext(Dispatchers.Main) {
+                                    taskAdapter.updateData(mergedMap.values.toList())
+                                }
+                            }
+                        } catch (e: Exception) {
+                            Log.w("MainActivity", "Remote tasks fetch notice: ${e.message}")
+                        }
+                    }
+                }
             }
             2 -> {
-                // Keep job adapter status
+                if (!isStandaloneMode) {
+                    CoroutineScope(Dispatchers.IO).launch {
+                        try {
+                            val res = ApiClient.service.getJobs()
+                            if (res.isSuccessful && res.body() != null) {
+                                withContext(Dispatchers.Main) {
+                                    jobAdapter.updateData(res.body()!!)
+                                }
+                            }
+                        } catch (e: Exception) {
+                            Log.w("MainActivity", "Remote jobs fetch notice: ${e.message}")
+                        }
+                    }
+                }
             }
             3 -> {
                 val configuredEndpoint = localDataManager.getYogeshChatEndpoint()
@@ -498,12 +561,9 @@ class MainActivity : AppCompatActivity() {
                     CoroutineScope(Dispatchers.IO).launch {
                         try {
                             val res = ApiClient.service.getAiLogs()
-                            if (res.isSuccessful) {
-                                val body = res.body()
-                                if (body != null) {
-                                    withContext(Dispatchers.Main) {
-                                        aiLogAdapter.updateData(body)
-                                    }
+                            if (res.isSuccessful && res.body() != null) {
+                                withContext(Dispatchers.Main) {
+                                    aiLogAdapter.updateData(res.body()!!)
                                 }
                             }
                         } catch (e: Exception) {

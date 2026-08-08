@@ -54,6 +54,21 @@ interface TaskPulseApiService {
     @DELETE("api/ai/logs")
     suspend fun clearAiLogs(): Response<Void>
 
+    @POST("api/meetings/{id}/reanalyze")
+    suspend fun reanalyzeMeeting(
+        @Path("id") id: String,
+        @Body body: Map<String, String>
+    ): Response<StopWebResponse>
+
     @DELETE("api/meetings/{id}")
     suspend fun deleteMeeting(@Path("id") id: String): Response<Void>
+
+    @PUT("api/tasks/{id}")
+    suspend fun updateTask(
+        @Path("id") id: String,
+        @Body task: TaskItem
+    ): Response<TaskItem>
+
+    @DELETE("api/tasks/{id}")
+    suspend fun deleteTask(@Path("id") id: String): Response<Void>
 }
