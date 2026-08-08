@@ -335,7 +335,7 @@ class MainActivity : AppCompatActivity() {
                 } catch (e: Exception) {
                     Log.e("MainActivity", "Server upload failed: ${e.message}")
                     withContext(Dispatchers.Main) {
-                        Toast.makeText(this@MainActivity, "Server connection notice (${e.message}). Processed locally.", Toast.SHORT).show()
+                        Toast.makeText(this@MainActivity, "Server connection notice (${e.message}). Processed locally.", Toast.LENGTH_SHORT).show()
                         processLocallyFallback(title, transcript, audioPath)
                     }
                 }
