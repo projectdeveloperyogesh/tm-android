@@ -14,7 +14,10 @@ data class Meeting(
     @SerializedName("segments") val segments: List<Segment>? = emptyList(),
     @SerializedName("summary") val summary: String? = "",
     @SerializedName("items_discussed") val itemsDiscussed: List<ItemDiscussed>? = emptyList(),
-    @SerializedName("task_count") val taskCount: Int = 0
+    @SerializedName("task_count") val taskCount: Int = 0,
+    @SerializedName("prompt") val prompt: String? = "",
+    @SerializedName("curl_command") val curlCommand: String? = "",
+    @SerializedName("response_raw") val responseRaw: String? = ""
 )
 
 data class Segment(
@@ -54,6 +57,21 @@ data class BackgroundJob(
     @SerializedName("finished_at") val finishedAt: Double? = null,
     @SerializedName("error") val error: String? = null,
     @SerializedName("meeting_id") val meetingId: String? = null
+)
+
+data class AiLog(
+    @SerializedName("id") val id: String,
+    @SerializedName("timestamp") val timestamp: String? = "",
+    @SerializedName("provider") val provider: String? = "Yogesh Chat (Port 3005)",
+    @SerializedName("endpoint") val endpoint: String? = "http://localhost:3005/api/v1/ai/chat",
+    @SerializedName("http_method") val httpMethod: String? = "POST",
+    @SerializedName("meeting_title") val meetingTitle: String? = "",
+    @SerializedName("target_language") val targetLanguage: String? = "English",
+    @SerializedName("prompt") val prompt: String? = "",
+    @SerializedName("response_raw") val responseRaw: String? = "",
+    @SerializedName("duration_ms") val durationMs: Long? = 0,
+    @SerializedName("status") val status: String? = "success",
+    @SerializedName("curl_command") val curlCommand: String? = ""
 )
 
 data class StopWebResponse(

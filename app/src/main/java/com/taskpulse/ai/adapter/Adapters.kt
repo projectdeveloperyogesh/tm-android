@@ -108,3 +108,35 @@ class JobAdapter(
         notifyDataSetChanged()
     }
 }
+
+class AiLogAdapter(
+    private var logs: List<com.taskpulse.ai.models.AiLog>,
+    private val onLogClick: (com.taskpulse.ai.models.AiLog) -> Unit
+) : RecyclerView.Adapter<AiLogAdapter.AiLogViewHolder>() {
+
+    class AiLogViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
+        val titleText: TextView = itemView.findViewById(R.id.textJobTitle)
+        val stageBadge: TextView = itemView.findViewById(R.id.textJobStage)
+        val msgText: TextView = itemView.findViewById(R.id.textJobMessage)
+    }
+
+    override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): AiLogViewHolder {
+        val view = LayoutInflater.from(parent.context).inflate(R.layout.item_job, parent, false)
+        return AiLogViewHolder(view)
+    }
+
+    override fun onBindViewHolder(holder: AiLogViewHolder, position: Int) {
+        val log = logs[position]
+        holder.titleText.text = "${log.provider ?: "AI Engine"} • ${log.meetingTitle ?: "Session"}"
+        holder.stageBadge.text = (log.status ?: "SUCCESS").uppercase()
+        holder.msgText.text = "Target: ${log.endpoint ?: "http://localhost:3005/api/v1/ai/chat"} (${log.durationMs ?: 0} ms)"
+        holder.itemView.setOnClickListener { onLogClick(log) }
+    }
+
+    override fun getItemCount(): Int = logs.size
+
+    fun updateData(newLogs: List<com.taskpulse.ai.models.AiLog>) {
+        logs = newLogs
+        notifyDataSetChanged()
+    }
+}

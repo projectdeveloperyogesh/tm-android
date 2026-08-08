@@ -43,8 +43,9 @@ class MainActivity : AppCompatActivity() {
     private var meetingAdapter = MeetingAdapter(emptyList()) { meeting -> showMeetingDetailsDialog(meeting) }
     private var taskAdapter = TaskAdapter(emptyList())
     private var jobAdapter = JobAdapter(emptyList())
+    private var aiLogAdapter = com.taskpulse.ai.adapter.AiLogAdapter(emptyList()) { log -> showAiLogDetailDialog(log) }
 
-    private var currentTab = 0 // 0: Meetings, 1: Tasks, 2: Jobs
+    private var currentTab = 0 // 0: Meetings, 1: Tasks, 2: Jobs, 3: AI Logs Audit
     private var isRecording = false
     private var secondsElapsed = 0
     private val timerHandler = Handler(Looper.getMainLooper())
@@ -106,6 +107,7 @@ class MainActivity : AppCompatActivity() {
                     0 -> binding.recyclerView.adapter = meetingAdapter
                     1 -> binding.recyclerView.adapter = taskAdapter
                     2 -> binding.recyclerView.adapter = jobAdapter
+                    3 -> binding.recyclerView.adapter = aiLogAdapter
                 }
                 loadLocalData()
             }
@@ -232,7 +234,8 @@ class MainActivity : AppCompatActivity() {
         val (meeting, tasks) = LocalMeetingEngine.processMeetingLocally(
             title = title,
             transcriptRaw = transcript,
-            audioFilePath = audioPath
+            audioFilePath = audioPath,
+            serverHost = ApiClient.getBaseUrl()
         )
 
         localDataManager.saveMeeting(meeting)
@@ -273,6 +276,40 @@ class MainActivity : AppCompatActivity() {
             2 -> {
                 // Keep job adapter status
             }
+            3 -> {
+                if (!isStandaloneMode) {
+                    kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+                        try {
+                            val res = ApiClient.service.getAiLogs()
+                            if (res.isSuccessful && res.body() != null) {
+                                withContext(kotlinx.coroutines.Dispatchers.Main) {
+                                    aiLogAdapter.updateData(res.body()!!)
+                                }
+                            }
+                        } catch (e: Exception) {
+                            Log.w("MainActivity", "Remote AI Logs fetch notice: ${e.message}")
+                        }
+                    }
+                } else {
+                    val localLogs = localDataManager.getMeetings().map { m ->
+                        com.taskpulse.ai.models.AiLog(
+                            id = m.id,
+                            timestamp = m.createdAt,
+                            provider = "On-Device AI Engine",
+                            endpoint = "http://localhost:3005/api/v1/ai/chat",
+                            httpMethod = "POST",
+                            meetingTitle = m.title,
+                            targetLanguage = m.language,
+                            prompt = m.prompt ?: "Analyze meeting transcript for '${m.title}'.",
+                            responseRaw = m.responseRaw ?: m.summary,
+                            durationMs = 1200,
+                            status = "success",
+                            curlCommand = m.curlCommand ?: "curl -X POST \"http://localhost:3005/api/v1/ai/chat\""
+                        )
+                    }
+                    aiLogAdapter.updateData(localLogs)
+                }
+            }
         }
     }
 
@@ -284,14 +321,22 @@ class MainActivity : AppCompatActivity() {
             "No action tasks extracted."
         }
 
-        val message = """
-            📅 Date: ${meeting.createdAt}
+        val formattedReport = """
+            🤖 AI CHAT ASSISTANT - MEETING INTELLIGENCE REPORT
+            =========================================================
+            📌 Meeting Title : ${meeting.title}
+            📅 Date Recorded : ${meeting.createdAt}
+            🗣️ Language      : ${meeting.language}
+            =========================================================
             
-            📝 AI SUMMARY:
+            📝 EXECUTIVE SUMMARY:
             ${meeting.summary}
             
             ✅ ACTION TASKS:
             $taskText
+            
+            ⚡ EXECUTABLE cURL COMMAND:
+            ${meeting.curlCommand ?: "N/A"}
             
             💬 TRANSCRIPT:
             ${meeting.transcript}
@@ -299,12 +344,46 @@ class MainActivity : AppCompatActivity() {
 
         AlertDialog.Builder(this)
             .setTitle(meeting.title)
-            .setMessage(message)
+            .setMessage(formattedReport)
             .setPositiveButton("Close", null)
-            .setNegativeButton("Delete Meeting") { _, _ ->
+            .setNeutralButton("Copy Full Description") { _, _ ->
+                val clipboard = getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                val clip = android.content.ClipData.newPlainText("AI Assistant Description", formattedReport)
+                clipboard.setPrimaryClip(clip)
+                Toast.makeText(this, "Copied Full Formatted Description to Clipboard!", Toast.LENGTH_LONG).show()
+            }
+            .setNegativeButton("Delete") { _, _ ->
                 localDataManager.deleteMeeting(meeting.id)
                 loadLocalData()
                 Toast.makeText(this, "Meeting deleted", Toast.LENGTH_SHORT).show()
+            }
+            .show()
+    }
+
+    private fun showAiLogDetailDialog(log: com.taskpulse.ai.models.AiLog) {
+        val detailMsg = """
+            🔗 TARGET ENDPOINT:
+            ${log.httpMethod} ${log.endpoint}
+            
+            ⚡ EXECUTABLE cURL COMMAND:
+            ${log.curlCommand}
+            
+            💬 PROMPT SENT TO AI ENGINE:
+            ${log.prompt}
+            
+            📥 RAW AI RESPONSE OUTPUT:
+            ${log.responseRaw}
+        """.trimIndent()
+
+        AlertDialog.Builder(this)
+            .setTitle("${log.provider} • ${log.meetingTitle}")
+            .setMessage(detailMsg)
+            .setPositiveButton("Close", null)
+            .setNeutralButton("Copy cURL") { _, _ ->
+                val clipboard = getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                val clip = android.content.ClipData.newPlainText("cURL Command", log.curlCommand ?: "")
+                clipboard.setPrimaryClip(clip)
+                Toast.makeText(this, "Copied cURL Command to Clipboard!", Toast.LENGTH_SHORT).show()
             }
             .show()
     }

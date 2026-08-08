@@ -64,7 +64,9 @@ class AudioRecorderManager(private val context: Context) {
                         fileStream.write(byteBuffer)
 
                         val rms = sqrt(sum / read)
-                        val level = (rms / 32767.0 * 100).coerceIn(0.0, 100.0).toInt()
+                        val normRms = (rms / 32767.0).coerceAtLeast(1e-5)
+                        val db = 20.0 * Math.log10(normRms)
+                        val level = (((db + 60.0) / 60.0) * 100.0).coerceIn(0.0, 100.0).toInt()
                         withContext(Dispatchers.Main) {
                             onAmplitudeUpdate(level)
                         }

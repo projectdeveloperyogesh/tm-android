@@ -33,6 +33,18 @@ object LocalMeetingEngine {
             Segment(start = "00:00", end = "End", speaker = "Speaker 1", text = transcript)
         )
 
+        val prompt = "Analyze the following meeting transcript for '$title' in $language:\n\nTranscript:\n$transcript"
+        val endpointUrl = if (!serverHost.isNullOrBlank()) "$serverHost/api/v1/ai/chat" else "http://localhost:3005/api/v1/ai/chat"
+        val curlCmd = "curl -X POST \"$endpointUrl\" \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\n  \"prompt\": \"$prompt\",\n  \"model\": \"Gemini 3.6 Flash (High)\"\n}'"
+
+        val rawResponse = """
+            {
+              "summary": "$summary",
+              "items_discussed": ${itemsDiscussed.size},
+              "tasks": ${tasks.size}
+            }
+        """.trimIndent()
+
         val meeting = Meeting(
             id = meetingId,
             title = title,
@@ -45,7 +57,10 @@ object LocalMeetingEngine {
             segments = segments,
             summary = summary,
             itemsDiscussed = itemsDiscussed,
-            taskCount = tasks.size
+            taskCount = tasks.size,
+            prompt = prompt,
+            curlCommand = curlCmd,
+            responseRaw = rawResponse
         )
 
         return Pair(meeting, tasks)

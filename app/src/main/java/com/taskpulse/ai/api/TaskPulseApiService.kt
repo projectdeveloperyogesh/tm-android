@@ -38,4 +38,10 @@ interface TaskPulseApiService {
         @Part("meeting_title") meetingTitle: RequestBody,
         @Part("target_language") targetLanguage: RequestBody
     ): Response<StopWebResponse>
+
+    @GET("api/ai/logs")
+    suspend fun getAiLogs(): Response<List<com.taskpulse.ai.models.AiLog>>
+
+    @DELETE("api/ai/logs")
+    suspend fun clearAiLogs(): Response<Void>
 }
