@@ -3,6 +3,7 @@ package com.taskpulse.ai.adapter
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.widget.Button
 import android.widget.ProgressBar
 import android.widget.TextView
 import androidx.recyclerview.widget.RecyclerView
@@ -13,7 +14,9 @@ import com.taskpulse.ai.models.TaskItem
 
 class MeetingAdapter(
     private var meetings: List<Meeting>,
-    private val onMeetingClick: (Meeting) -> Unit
+    private val onMeetingClick: (Meeting) -> Unit,
+    private val onPlayClick: (Meeting) -> Unit = {},
+    private val onDeleteClick: (Meeting) -> Unit = {}
 ) : RecyclerView.Adapter<MeetingAdapter.MeetingViewHolder>() {
 
     class MeetingViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
@@ -21,6 +24,8 @@ class MeetingAdapter(
         val dateText: TextView = itemView.findViewById(R.id.textDate)
         val summaryText: TextView = itemView.findViewById(R.id.textSummary)
         val tasksBadge: TextView = itemView.findViewById(R.id.textTaskBadge)
+        val btnPlay: Button = itemView.findViewById(R.id.btnPlayAudio)
+        val btnDelete: Button = itemView.findViewById(R.id.btnDeleteMeeting)
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): MeetingViewHolder {
@@ -35,6 +40,8 @@ class MeetingAdapter(
         holder.summaryText.text = meeting.summary ?: "No summary available."
         holder.tasksBadge.text = "${meeting.taskCount} Tasks"
         holder.itemView.setOnClickListener { onMeetingClick(meeting) }
+        holder.btnPlay.setOnClickListener { onPlayClick(meeting) }
+        holder.btnDelete.setOnClickListener { onDeleteClick(meeting) }
     }
 
     override fun getItemCount(): Int = meetings.size

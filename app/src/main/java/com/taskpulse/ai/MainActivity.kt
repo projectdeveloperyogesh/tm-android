@@ -3,6 +3,7 @@ package com.taskpulse.ai
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.media.MediaPlayer
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -44,7 +45,12 @@ class MainActivity : AppCompatActivity() {
     private var speechRecognizer: SpeechRecognizer? = null
     private val liveTranscriptBuilder = StringBuilder()
 
-    private var meetingAdapter = MeetingAdapter(emptyList()) { meeting -> showMeetingDetailsDialog(meeting) }
+    private var meetingAdapter = MeetingAdapter(
+        emptyList(),
+        onMeetingClick = { meeting -> showMeetingDetailsDialog(meeting) },
+        onPlayClick = { meeting -> playMeetingAudio(meeting) },
+        onDeleteClick = { meeting -> confirmDeleteMeeting(meeting) }
+    )
     private var taskAdapter = TaskAdapter(emptyList())
     private var jobAdapter = JobAdapter(emptyList())
     private var aiLogAdapter = com.taskpulse.ai.adapter.AiLogAdapter(emptyList()) { log -> showAiLogDetailDialog(log) }
@@ -56,6 +62,7 @@ class MainActivity : AppCompatActivity() {
     private var timerRunnable: Runnable? = null
 
     private var isStandaloneMode = true
+    private var mediaPlayer: MediaPlayer? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -144,7 +151,12 @@ class MainActivity : AppCompatActivity() {
         if (SpeechRecognizer.isRecognitionAvailable(this)) {
             speechRecognizer = SpeechRecognizer.createSpeechRecognizer(this)
             speechRecognizer?.setRecognitionListener(object : RecognitionListener {
-                override fun onReadyForSpeech(params: Bundle?) {}
+                override fun onReadyForSpeech(params: Bundle?) {
+                    runOnUiThread {
+                        binding.textStatusPill.text = "🎙️ Listening..."
+                        binding.textStatusPill.setTextColor(ContextCompat.getColor(this@MainActivity, R.color.accent_emerald))
+                    }
+                }
                 override fun onBeginningOfSpeech() {}
                 override fun onRmsChanged(rmsdB: Float) {}
                 override fun onBufferReceived(buffer: ByteArray?) {}
@@ -152,12 +164,35 @@ class MainActivity : AppCompatActivity() {
                     if (isRecording) restartSpeechRecognition()
                 }
                 override fun onError(error: Int) {
-                    if (isRecording) restartSpeechRecognition()
+                    val errorMsg = when (error) {
+                        SpeechRecognizer.ERROR_NO_MATCH -> "No speech detected"
+                        SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "Speech timeout"
+                        SpeechRecognizer.ERROR_AUDIO -> "Audio error"
+                        SpeechRecognizer.ERROR_NETWORK -> "Network error"
+                        SpeechRecognizer.ERROR_NETWORK_TIMEOUT -> "Network timeout"
+                        SpeechRecognizer.ERROR_CLIENT -> "Client error"
+                        SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "No permission"
+                        SpeechRecognizer.ERROR_SERVER -> "Server error"
+                        SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> "Recognizer busy"
+                        else -> "Error code: $error"
+                    }
+                    Log.w("SpeechRecognizer", "Error: $errorMsg ($error)")
+                    if (isRecording) {
+                        runOnUiThread {
+                            binding.textStatusPill.text = "🎙️ Re-listening... ($errorMsg)"
+                        }
+                        restartSpeechRecognition()
+                    }
                 }
                 override fun onResults(results: Bundle?) {
                     val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
                     if (!matches.isNullOrEmpty()) {
                         liveTranscriptBuilder.append(matches[0]).append(" ")
+                        runOnUiThread {
+                            val preview = liveTranscriptBuilder.toString()
+                            val displayText = if (preview.length > 60) "...${preview.takeLast(60)}" else preview
+                            binding.textStatusPill.text = "📝 $displayText"
+                        }
                     }
                     if (isRecording) restartSpeechRecognition()
                 }
@@ -165,10 +200,15 @@ class MainActivity : AppCompatActivity() {
                     val matches = partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
                     if (!matches.isNullOrEmpty()) {
                         Log.d("SpeechRecognizer", "Partial: ${matches[0]}")
+                        runOnUiThread {
+                            binding.textStatusPill.text = "🎙️ ${matches[0]}"
+                        }
                     }
                 }
                 override fun onEvent(eventType: Int, params: Bundle?) {}
             })
+        } else {
+            Log.w("SpeechRecognizer", "SpeechRecognizer is NOT available on this device")
         }
     }
 
@@ -177,17 +217,27 @@ class MainActivity : AppCompatActivity() {
             putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
             putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault())
             putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
+            putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3)
         }
-        speechRecognizer?.startListening(intent)
+        try {
+            speechRecognizer?.startListening(intent)
+        } catch (e: Exception) {
+            Log.e("MainActivity", "Failed to start speech recognition: ${e.message}")
+        }
     }
 
     private fun restartSpeechRecognition() {
-        try {
-            speechRecognizer?.stopListening()
-            startSpeechRecognition()
-        } catch (e: Exception) {
-            Log.e("MainActivity", "Error restarting speech recognition: ${e.message}")
-        }
+        // Add a 500ms delay before restarting to prevent rapid restart crashes
+        timerHandler.postDelayed({
+            if (isRecording) {
+                try {
+                    speechRecognizer?.stopListening()
+                } catch (e: Exception) {
+                    Log.w("MainActivity", "StopListening error: ${e.message}")
+                }
+                startSpeechRecognition()
+            }
+        }, 500)
     }
 
     private fun startRecording() {
@@ -207,7 +257,7 @@ class MainActivity : AppCompatActivity() {
         isRecording = true
         binding.btnStartRecord.isEnabled = false
         binding.btnStopRecord.isEnabled = true
-        binding.textStatusPill.text = "Recording & Transcribing On-Device"
+        binding.textStatusPill.text = "🎙️ Recording & Transcribing On-Device"
         binding.textStatusPill.setTextColor(ContextCompat.getColor(this, R.color.accent_emerald))
 
         secondsElapsed = 0
@@ -233,12 +283,18 @@ class MainActivity : AppCompatActivity() {
         binding.btnStartRecord.isEnabled = true
         binding.btnStopRecord.isEnabled = false
         binding.textStatusPill.text = "Processing On-Device AI Intelligence..."
+        binding.textStatusPill.setTextColor(ContextCompat.getColor(this, R.color.text_muted))
         binding.progressMicLevel.progress = 0
         binding.textMicPercent.text = "0%"
 
         val title = binding.editMeetingTitle.text.toString().ifEmpty { "On-Device Meeting ${System.currentTimeMillis() % 10000}" }
         val audioPath = recordedFile?.absolutePath ?: "N/A"
-        val transcript = liveTranscriptBuilder.toString()
+        var transcript = liveTranscriptBuilder.toString().trim()
+
+        // Fallback if speech-to-text captured nothing
+        if (transcript.isEmpty()) {
+            transcript = "[Speech-to-text unavailable — review audio recording at: ${recordedFile?.name ?: "N/A"}]"
+        }
 
         // 100% On-Device Standalone Processing
         val (meeting, tasks) = LocalMeetingEngine.processMeetingLocally(
@@ -272,6 +328,86 @@ class MainActivity : AppCompatActivity() {
 
         binding.tabLayout.getTabAt(0)?.select()
         loadLocalData()
+    }
+
+    // ========================
+    // Play Meeting Audio
+    // ========================
+    private fun playMeetingAudio(meeting: Meeting) {
+        val audioPath = meeting.audioUrl
+        if (audioPath.isNullOrEmpty() || audioPath == "N/A") {
+            Toast.makeText(this, "No audio recording found for this meeting.", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        val audioFile = File(audioPath)
+        if (!audioFile.exists()) {
+            Toast.makeText(this, "Audio file not found:\n${audioFile.name}", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        // Stop any currently playing audio
+        stopAudioPlayback()
+
+        try {
+            mediaPlayer = MediaPlayer().apply {
+                setDataSource(audioFile.absolutePath)
+                prepare()
+                start()
+            }
+            Toast.makeText(this, "▶ Playing: ${audioFile.name}", Toast.LENGTH_SHORT).show()
+
+            mediaPlayer?.setOnCompletionListener {
+                Toast.makeText(this, "⏹ Playback finished", Toast.LENGTH_SHORT).show()
+                stopAudioPlayback()
+            }
+        } catch (e: Exception) {
+            Log.e("MainActivity", "Error playing audio: ${e.message}")
+            Toast.makeText(this, "Error playing audio: ${e.message}", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun stopAudioPlayback() {
+        try {
+            mediaPlayer?.stop()
+            mediaPlayer?.release()
+        } catch (e: Exception) {
+            // ignore
+        }
+        mediaPlayer = null
+    }
+
+    // ========================
+    // Delete Meeting with Confirmation
+    // ========================
+    private fun confirmDeleteMeeting(meeting: Meeting) {
+        AlertDialog.Builder(this)
+            .setTitle("Delete Meeting")
+            .setMessage("Are you sure you want to delete:\n\n\"${meeting.title}\"?\n\nThis will also delete associated tasks and the audio recording.")
+            .setPositiveButton("Delete") { _, _ ->
+                // Stop playback if playing this meeting's audio
+                stopAudioPlayback()
+
+                // Delete audio file from disk
+                val audioPath = meeting.audioUrl
+                if (!audioPath.isNullOrEmpty() && audioPath != "N/A") {
+                    try {
+                        val audioFile = File(audioPath)
+                        if (audioFile.exists()) {
+                            audioFile.delete()
+                        }
+                    } catch (e: Exception) {
+                        Log.w("MainActivity", "Could not delete audio file: ${e.message}")
+                    }
+                }
+
+                // Delete from local storage
+                localDataManager.deleteMeeting(meeting.id)
+                loadLocalData()
+                Toast.makeText(this, "Meeting \"${meeting.title}\" deleted.", Toast.LENGTH_SHORT).show()
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
     }
 
     private fun loadLocalData() {
@@ -342,6 +478,7 @@ class MainActivity : AppCompatActivity() {
             📌 Meeting Title : ${meeting.title}
             📅 Date Recorded : ${meeting.createdAt}
             🗣️ Language      : ${meeting.language}
+            🎵 Audio File    : ${meeting.audioFilename ?: "N/A"}
             =========================================================
             
             📝 EXECUTIVE SUMMARY:
@@ -368,9 +505,7 @@ class MainActivity : AppCompatActivity() {
                 Toast.makeText(this, "Copied Full Formatted Description to Clipboard!", Toast.LENGTH_LONG).show()
             }
             .setNegativeButton("Delete") { _, _ ->
-                localDataManager.deleteMeeting(meeting.id)
-                loadLocalData()
-                Toast.makeText(this, "Meeting deleted", Toast.LENGTH_SHORT).show()
+                confirmDeleteMeeting(meeting)
             }
             .show()
     }
@@ -406,5 +541,6 @@ class MainActivity : AppCompatActivity() {
     override fun onDestroy() {
         super.onDestroy()
         speechRecognizer?.destroy()
+        stopAudioPlayback()
     }
 }
