@@ -82,12 +82,12 @@
                             android:layout_height="40dp"
                             android:layout_weight="1"
                             android:background="#1e293b"
-                            android:hint="http://10.0.2.2:3005"
+                            android:hint="Remote Sync: http://10.0.2.2:3000"
                             android:inputType="textUri"
                             android:paddingHorizontal="10dp"
                             android:textColor="@color/text_white"
                             android:textColorHint="@color/text_muted"
-                            android:textSize="13sp" />
+                            android:textSize="12sp" />
 
                         <Button
                             android:id="@+id/btnConnectServer"
@@ -95,11 +95,24 @@
                             android:layout_height="40dp"
                             android:layout_marginStart="8dp"
                             android:backgroundTint="@color/accent_blue"
-                            android:text="Connect"
+                            android:text="Save Config"
                             android:textColor="@color/text_white"
                             android:textSize="12sp" />
 
                     </LinearLayout>
+
+                    <EditText
+                        android:id="@+id/editYogeshChatEndpoint"
+                        android:layout_width="match_parent"
+                        android:layout_height="40dp"
+                        android:layout_marginTop="8dp"
+                        android:background="#1e293b"
+                        android:hint="Yogesh AI Chat API: http://10.0.2.2:3005/api/v1/ai/chat"
+                        android:inputType="textUri"
+                        android:paddingHorizontal="10dp"
+                        android:textColor="@color/text_white"
+                        android:textColorHint="@color/text_muted"
+                        android:textSize="12sp" />
 
                 </LinearLayout>
 

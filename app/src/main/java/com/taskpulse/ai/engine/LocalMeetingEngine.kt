@@ -14,7 +14,8 @@ object LocalMeetingEngine {
         transcriptRaw: String,
         audioFilePath: String,
         language: String = "English",
-        serverHost: String? = null
+        serverHost: String? = null,
+        yogeshChatEndpoint: String? = null
     ): Pair<Meeting, List<TaskItem>> {
         val meetingId = UUID.randomUUID().toString().substring(0, 8)
         val createdAt = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date())
@@ -34,7 +35,19 @@ object LocalMeetingEngine {
         )
 
         val prompt = "Analyze the following meeting transcript for '$title' in $language:\n\nTranscript:\n$transcript"
-        val endpointUrl = if (!serverHost.isNullOrBlank()) "$serverHost/api/v1/ai/chat" else "http://localhost:3005/api/v1/ai/chat"
+        
+        var endpointUrl = yogeshChatEndpoint?.trim() ?: ""
+        if (endpointUrl.isEmpty()) {
+            endpointUrl = if (!serverHost.isNullOrBlank()) "$serverHost/api/v1/ai/chat" else "http://10.0.2.2:3005/api/v1/ai/chat"
+        }
+        if (!endpointUrl.startsWith("http://") && !endpointUrl.startsWith("https://")) {
+            endpointUrl = "http://$endpointUrl"
+        }
+        if (!endpointUrl.endsWith("/api/v1/ai/chat") && !endpointUrl.endsWith("/chat")) {
+            if (endpointUrl.endsWith("/")) endpointUrl += "api/v1/ai/chat"
+            else endpointUrl += "/api/v1/ai/chat"
+        }
+
         val curlCmd = "curl -X POST \"$endpointUrl\" \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\n  \"prompt\": \"$prompt\",\n  \"model\": \"Gemini 3.6 Flash (High)\"\n}'"
 
         val rawResponse = """

@@ -71,15 +71,21 @@ class MainActivity : AppCompatActivity() {
         binding.recyclerView.layoutManager = LinearLayoutManager(this)
         binding.recyclerView.adapter = meetingAdapter
 
+        binding.editYogeshChatEndpoint.setText(localDataManager.getYogeshChatEndpoint())
+
         binding.btnConnectServer.setOnClickListener {
             val host = binding.editServerHost.text.toString().trim()
+            val ycEndpoint = binding.editYogeshChatEndpoint.text.toString().trim()
+            if (ycEndpoint.isNotEmpty()) {
+                localDataManager.saveYogeshChatEndpoint(ycEndpoint)
+            }
             if (host.isNotEmpty()) {
                 ApiClient.updateBaseUrl(host)
                 isStandaloneMode = false
-                Toast.makeText(this, "Connected to Remote Server: ${ApiClient.getBaseUrl()}", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, "Connected Remote: ${ApiClient.getBaseUrl()}\nYogesh AI API: ${localDataManager.getYogeshChatEndpoint()}", Toast.LENGTH_SHORT).show()
             } else {
                 isStandaloneMode = true
-                Toast.makeText(this, "100% Standalone On-Device Mode Active", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, "Configuration Saved!\nYogesh AI API: ${localDataManager.getYogeshChatEndpoint()}", Toast.LENGTH_SHORT).show()
             }
         }
 
@@ -235,7 +241,8 @@ class MainActivity : AppCompatActivity() {
             title = title,
             transcriptRaw = transcript,
             audioFilePath = audioPath,
-            serverHost = ApiClient.getBaseUrl()
+            serverHost = ApiClient.getBaseUrl(),
+            yogeshChatEndpoint = localDataManager.getYogeshChatEndpoint()
         )
 
         localDataManager.saveMeeting(meeting)
@@ -277,6 +284,7 @@ class MainActivity : AppCompatActivity() {
                 // Keep job adapter status
             }
             3 -> {
+                val configuredEndpoint = localDataManager.getYogeshChatEndpoint()
                 if (!isStandaloneMode) {
                     kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
                         try {
@@ -295,8 +303,8 @@ class MainActivity : AppCompatActivity() {
                         com.taskpulse.ai.models.AiLog(
                             id = m.id,
                             timestamp = m.createdAt,
-                            provider = "On-Device AI Engine",
-                            endpoint = "http://localhost:3005/api/v1/ai/chat",
+                            provider = "Yogesh Chat Engine",
+                            endpoint = configuredEndpoint,
                             httpMethod = "POST",
                             meetingTitle = m.title,
                             targetLanguage = m.language,
@@ -304,7 +312,7 @@ class MainActivity : AppCompatActivity() {
                             responseRaw = m.responseRaw ?: m.summary,
                             durationMs = 1200,
                             status = "success",
-                            curlCommand = m.curlCommand ?: "curl -X POST \"http://localhost:3005/api/v1/ai/chat\""
+                            curlCommand = m.curlCommand ?: "curl -X POST \"$configuredEndpoint\""
                         )
                     }
                     aiLogAdapter.updateData(localLogs)

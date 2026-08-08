@@ -61,4 +61,14 @@ class LocalDataManager(private val context: Context) {
         val tasks = getTasks().filter { it.meetingId != meetingId }
         tasksFile.writeText(gson.toJson(tasks))
     }
+
+    fun saveYogeshChatEndpoint(endpoint: String) {
+        val prefs = context.getSharedPreferences("settings", Context.MODE_PRIVATE)
+        prefs.edit().putString("yogesh_chat_endpoint", endpoint).apply()
+    }
+
+    fun getYogeshChatEndpoint(): String {
+        val prefs = context.getSharedPreferences("settings", Context.MODE_PRIVATE)
+        return prefs.getString("yogesh_chat_endpoint", "http://10.0.2.2:3005/api/v1/ai/chat") ?: "http://10.0.2.2:3005/api/v1/ai/chat"
+    }
 }

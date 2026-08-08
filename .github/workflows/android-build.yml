@@ -28,8 +28,16 @@ jobs:
       - name: Build Debug APK
         run: gradle assembleDebug --stacktrace
 
+      - name: Copy and Commit APK to Repository
+        run: |
+          cp app/build/outputs/apk/debug/app-debug.apk TaskPulseAI-debug.apk
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add TaskPulseAI-debug.apk
+          git diff --quiet && git diff --staged --quiet || (git commit -m "Auto-build TaskPulseAI-debug.apk [skip ci]" && git push)
+
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
           name: TaskPulseAI-debug.apk
-          path: app/build/outputs/apk/debug/app-debug.apk
+          path: TaskPulseAI-debug.apk
